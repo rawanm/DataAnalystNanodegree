@@ -1,5 +1,13 @@
 # Data Analyst Nanodegree
 
+"We built this program with expert analysts and scientists at leading technology companies to ensure you master the exact skills necessary to build a career in data science.
+
+Learn to organize data, uncover patterns and insights, make predictions using machine learning, and clearly communicate critical findings."
+
+[Udacity](https://www.udacity.com/course/data-analyst-nanodegree--nd002)
+
+
+## Projects: 
 #### This Repository contains the projects I have worked on to complete Udacity "Data Analyst Nanodegree": 
 
 ###### [1- Analyze Bay Area Bike Share Data:](https://github.com/rawanm/DataAnalystNanodegree/tree/master/P0_Analyze_Bay_Area_Bike_Share_Data)
