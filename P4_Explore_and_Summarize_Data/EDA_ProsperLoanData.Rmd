@@ -1,0 +1,877 @@
+EDA of Loan Data from Prosper 
+
+by Rawan Almohimeed
+========================================================
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, packages}
+# Load all of the packages that you end up using in your analysis in this code
+# chunk.
+
+# Notice that the parameter "echo" was set to FALSE for this code chunk. This
+# prevents the code from displaying in the knitted HTML output. You should set
+# echo=FALSE for all code chunks in your file, unless it makes sense for your
+# report to show the code that generated a particular plot.
+
+# The other parameters for "message" and "warning" should also be set to FALSE
+# for other code chunks once you have verified that each plot comes out as you
+# want it to. This will clean up the flow of your report.
+
+library(ggplot2)
+library(dplyr)
+library(lubridate)
+library(GGally)
+library(gridExtra)
+library(quantreg)
+
+
+```
+
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, Load_the_Data}
+# Load the Data
+prosperLoanData <- read.csv("prosperLoanData.csv")
+prosperLoanDataMetadata <- 
+  read.csv("Prosper Loan Data - Variable Definitions.csv")
+
+```
+
+
+The dataset I will be exploring in this report is Prosper Loans Data. Prosper 
+is a peer-to-peer lending marketplace, with over $7 billion in funded loans.[1] 
+Borrowers request personal loans on Prosper and investors (individual or 
+institutional) can fund anywhere from $2,000 to $35,000 per loan request. 
+Investors can consider borrowers’ credit scores, ratings, and histories and the 
+category of the loan. Prosper handles the servicing of the loan and collects 
+and distributes borrower payments and interest back to the loan investors.[2]
+
+Through this EDA I will explore the structure of the data, and will try and 
+answer some questions, such as, what are the characteristics of borrowers and 
+loans? How does this marketplace evalutes loans and estimates risk? And other questions as I go through this analysis.
+
+# Univariate Plots Section
+
+In this section I will explore the dataset structure and provide some plots and 
+statistics.  
+
+### Row count, starcutre and summary of the whole dataset:
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, Structure}
+# row count: 
+nrow(prosperLoanData)
+
+# dataset structure: 
+str(prosperLoanData)
+
+# variables and definitions: 
+#View (prosperLoanDataMetadata)
+names(prosperLoanData)
+# summary and stats: 
+summary(prosperLoanData)
+```
+
+
+### Credit Grade and Prosper Rating: 
+```{r echo=FALSE, message=FALSE, warning=FALSE, Univariate_Plots_1}
+
+# reorder the factor Prosper Rating: 
+prosperLoanData$ProsperRating..Alpha. <- factor(
+  prosperLoanData$ProsperRating..Alpha., 
+  levels = c("AA", "A", "B", "C", "D", "E", "HR"))
+
+# credit grade (before 2009): 
+p1 <- ggplot(aes(x = CreditGrade), data = subset(prosperLoanData, 
+                                           CreditGrade != "")) + 
+  geom_histogram(stat = "count") 
+  #geom_bar()
+
+
+# prosper rating (after 2009): 
+p2 <- ggplot(aes(x = ProsperRating..Alpha.), 
+             data = subset(prosperLoanData, !is.na(ProsperRating..Alpha.))) +
+  geom_bar() 
+
+grid.arrange(p1, p2)
+```
+
+These two variables, based on the variable descritiopn represent the same rating but for listing prior to 2009, and after 2009, respectively. As we can see the rating has normal disrubution. 
+  
+
+### Term: 
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, Univariate_Plots_2}
+
+# convert to factor: 
+prosperLoanData$Term <- as.factor(prosperLoanData$Term)
+
+ggplot(aes(x = Term), data = prosperLoanData) +
+  geom_bar() +
+  scale_y_continuous(breaks = seq(0,100000, 5000))
+
+ggplot(aes(x = Term), data = prosperLoanData) +
+  geom_bar(aes(y = (..count..)/sum(..count..))) +
+  scale_y_continuous(labels = scales::percent)
+  
+1614/nrow(prosperLoanData)*100
+summary(prosperLoanData$Term)
+
+```
+
+About ~ 77% of loans are set for three years, we can further explore how this relates to loan amount and/or borrower income. It suprised me to notice some loans that are only 12 months long! 
+
+
+### Loan Status: 
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, Univariate_Plots_3}
+
+ggplot(aes(x = LoanStatus), data = prosperLoanData) +
+  geom_bar() +
+  scale_y_continuous(breaks = seq(0,100000, 5000)) + 
+  theme(axis.text.x = element_text(angle = 70, hjust = 1)) 
+
+```
+
+As we can see there is good percentage of completed loans, which is a good factor to consider the effectiveness of Prosper marketplace.  
+
+### Loan Amount: 
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, Univariate_Plots_4}
+
+ggplot(aes(x = LoanOriginalAmount), data = prosperLoanData) +
+  #geom_histogram(binwidth = 500) +
+  geom_freqpoly (binwidth = 500) +
+  scale_x_continuous(breaks = seq(0,35000, 1000)) + 
+  theme(axis.text.x = element_text(angle = 70, hjust = 1)) 
+
+summary(prosperLoanData$LoanOriginalAmount)
+count(subset(prosperLoanData, LoanOriginalAmount > 25000))/
+  nrow(prosperLoanData) * 100
+
+```
+
+It's clear that most loans fall into theses values (~4000, ~10000, ~15000), and loans higher than 25000 only represent a very small percentage (~0.5%) of all loans. 
+
+### Borrower Employment Status: 
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, Univariate_Plots_5}
+
+ggplot(aes(x = EmploymentStatus), data = subset(prosperLoanData, 
+                                                EmploymentStatus != "")) +
+  geom_bar() +
+  theme(axis.text.x = element_text(angle = 70, hjust = 1)) 
+
+summary(prosperLoanData$EmploymentStatus)
+
+# convert from months to years: 
+prosperLoanData$EmploymentStatusDuration <- 
+prosperLoanData$EmploymentStatusDuration/12
+
+```
+
+Most loans are made by employeed with (1-2) years of employment. We can later explore this in relation to loan amount/ income/ loan category. 
+
+### Category: 
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, Univariate_Plots_6}
+# create new variable with category names: 
+
+categoryLabels <- c("Not Available", "Debt Consolidation", "Home Improvement", 
+                    "Business", "Personal Loan", "Student Use", "Auto","Other", 
+                    "Baby&Adoption", "Boat", "Cosmetic Procedure", 
+                    "Engagement Ring", "Green Loans", "Household Expenses", 
+                    "Large Purchases", "Medical/Dental", "Motorcycle", "RV", 
+                    "Taxes", "Vacation", "Wedding Loans")
+prosperLoanData$ListingCategory..alpha. <- 
+  factor(prosperLoanData$ListingCategory..numeric., labels = categoryLabels)
+
+summary(prosperLoanData$ListingCategory..alpha.)
+ggplot(aes(x = ListingCategory..alpha.), data = prosperLoanData) +
+  geom_bar() + 
+  theme(axis.text.x = element_text(angle = 70, hjust = 1)) 
+  
+```
+
+It's clear that most loans are for Dept Consolidation, I expected to see more variation between categories, for example: students loans, home improvement, etc. Nonetheless the dataset isn't very informative we have many records with no available category info, as well as Other, which could be anything!    
+
+### Income Range and Monthly Income: 
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, Univariate_Plots_7}
+# reorder income range factor: 
+levels(prosperLoanData$IncomeRange)
+prosperLoanData$IncomeRange <- ordered(prosperLoanData$IncomeRange, 
+                                       levels = c("$0", "$1-24,999", 
+"$25,000-49,999","$50,000-74,999","$75,000-99,999", "$100,000+", 
+"Not displayed", "Not employed"))
+
+ggplot(aes(x = IncomeRange), data = prosperLoanData) +
+  geom_bar() + 
+  theme(axis.text.x = element_text(angle = 70, hjust = 1)) 
+
+ggplot(aes(x = StatedMonthlyIncome), data = prosperLoanData) +
+  geom_freqpoly(binwidth = 500) + 
+  scale_x_continuous(limits = c(0,50000), breaks = seq(0,50000,2000)) + 
+  theme(axis.text.x = element_text(angle = 70, hjust = 1)) 
+
+summary(prosperLoanData$StatedMonthlyIncome)
+```
+
+As we can see the income range has normal distibution, and the average monthly income falls around (4000-5000) which is consistant with income range. I have detected some outliers in the monthly income so I had to change the limits of my plot to get better representation of the data. 
+
+### Dept to Income Ratio:
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, Univariate_Plots_8}
+ggplot(aes(x = DebtToIncomeRatio), data = prosperLoanData) +
+  geom_histogram(binwidth = 0.02, color = "black") + 
+  scale_x_continuous(breaks = seq(0,2,0.05), limits = c(0,2)) +
+  theme(axis.text.x = element_text(angle = 70, hjust = 1)) 
+
+
+summary(prosperLoanData$DebtToIncomeRatio)
+
+```
+
+We can strongly say that the DTI ratio is small, which is good factor for investors. 
+There are some detected outlier so it will be removed. 
+
+
+### Lender Yield:
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, Univariate_Plots_9}
+ggplot(aes(x = LenderYield), data = prosperLoanData) +
+  geom_histogram(binwidth = 0.01, color = "black") +
+  geom_freqpoly(color = "red", binwidth = 0.01) +
+  theme(axis.text.x = element_text(angle = 70, hjust = 1)) 
+
+
+```
+
+### Borrower Rate: 
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, Univariate_Plots_10}
+
+ggplot(aes(x = BorrowerRate), data = prosperLoanData) +
+  geom_histogram(binwidth = 0.01, color = "black") +
+  geom_freqpoly(color = "red", binwidth = 0.01) +
+  theme(axis.text.x = element_text(angle = 70, hjust = 1)) 
+
+```
+
+These two histograms show the investor yields, and borrower rate, we will further explore these variables in relation to other factors as well. 
+
+### Number of Investores: 
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, Univariate_Plots_11}
+
+ggplot(aes(x = Investors), data = prosperLoanData) +
+  geom_histogram(binwidth = 10, color = "black") + 
+  scale_x_continuous(limits = c(0,500), breaks = seq(0,500,20)) +
+  scale_y_continuous(limits = c(0,8000)) + 
+  theme(axis.text.x = element_text(angle = 70, hjust = 1)) 
+
+
+summary(prosperLoanData$Investors)
+
+print ("Number of loans backed by one invertor:")
+nrow(subset(prosperLoanData, Investors == 1))
+print ("Number and percentage of loans backed by one invertor:")
+nrow(subset(prosperLoanData, Investors > 1))
+nrow(subset(prosperLoanData, Investors > 1))/nrow(prosperLoanData) * 100
+```
+
+It's interesting to discover that around 75.5% of loans are backed by more than one invesitor. We can further explore this in relation with other factors. I will also explore loans that are backed by only one investor.
+
+### Prosper Risk Assessment: 
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, Univariate_Plots_12}
+
+ggplot(aes(x = ProsperScore), data = prosperLoanData) +
+  geom_bar() +
+  scale_x_continuous(breaks = seq(0,11,1)) +
+  theme(axis.text.x = element_text(angle = 70, hjust = 1)) 
+
+
+summary(prosperLoanData$ProsperScore)
+
+```
+
+This assessment is based on Prosper own historical data, with 10 being the best, or lowest risk score, it has normal distibution. 
+
+
+###  Loan Originated by Year: 
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, Univariate_Plots_13}
+
+# year originated: 
+years <- year(as.Date(prosperLoanData$ListingCreationDate))
+yearf <- as.factor(years)
+summary(years)
+prosperLoanData$Year <- yearf
+
+ggplot(aes(x = Year), data = prosperLoanData) +
+  geom_bar() + 
+  theme(axis.text.x = element_text(angle = 70, hjust = 1)) 
+
+```
+
+As we can see there's visible increase by each year, except for (2014), also there are some drops in years (2009-2011)!  
+
+
+# Univariate Analysis
+
+In this section I have explored the dataset and set some questions to answer through the analysis, 
+
+In the next section will further explore the dataset based on two relating variables. 
+
+### What is the structure of your dataset?
+
+As we have previously explored the structure of Prosper dataset. It can be viewed from two aspects relating to borrower, and loans. Borrower information which includes data provided by the user along with information from credit beruea. Loans data includes details for each loan which will be valueble in understanding the perfromance and effectivity of this marketplace.
+
+### What is/are the main feature(s) of interest in your dataset?
+
+The main features of interests are: 
+
+* Credit Score, and Prosper Rating 
+
+* Loan Amount. 
+
+* Monthly Payment. 
+
+* Employemnt Status and Duration. 
+
+* Borrower State. 
+
+* Risk Assessment. 
+
+* Loan Category. 
+
+* Borrower Rate. 
+
+* Investor Yield. 
+
+* Loan Term.
+
+* Income Range and Monthly Income. 
+
+* Number of Investors.
+
+I also want to explore more variables in the next section that may have relations with Prosper Score. 
+
+### What other features in the dataset do you think will help support your \
+investigation into your feature(s) of interest?
+
+It would be even more interesting to have data on investors, and exploreraltions based on their prospective. 
+
+### Did you create any new variables from existing variables in the dataset?
+
+New feature has been created (Year) from Listing Creation Date, to give better understanding of the dataset. 
+
+### Of the features you investigated, were there any unusual distributions? \
+Did you perform any operations on the data to tidy, adjust, or change the form \
+of the data? If so, why did you do this?
+
+I have performed some modification on some variables to better understand and represent the data, all have been explianed under each plot related.
+
+
+# Bivariate Plots Section
+
+In this section we will take the analysis to deeper level and try to explore relationships and correlations between variables. 
+
+### Correlation Matrix: 
+### How does Prosper assess loans and score risk? 
+
+```{r echo=FALSE, message=FALSE, fig.width=15, fig.height=15, warning=FALSE, Bivariate_Plots_1}
+ggpairs(prosperLoanData, columns = c("ProsperScore",
+                                     "TotalInquiries",
+                                     "CurrentDelinquencies",
+                                     "BankcardUtilization",
+                                     "TotalTrades",
+                                     "DebtToIncomeRatio",
+                                     "EstimatedLoss",
+                                     "BorrowerRate",
+                                     "LenderYield",
+                                     "CreditScoreRangeLower",
+                                     "CreditScoreRangeUpper",
+                                     "ProsperRating..numeric.",
+                                     "StatedMonthlyIncome",
+                                     "LoanOriginalAmount")) + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 0, color = "black")) 
+
+```
+```{r echo=FALSE, message=FALSE, warning=FALSE, Bivariate_Plots_2}
+
+ggcorr(prosperLoanData[c("ProsperScore",
+                         "TotalInquiries",
+                         "CurrentDelinquencies",
+                         "BankcardUtilization",
+                         "TotalTrades",
+                         "DebtToIncomeRatio",
+                         "EstimatedLoss",
+                         "BorrowerRate",
+                         "LenderYield",
+                         "CreditScoreRangeLower",
+                         "CreditScoreRangeUpper",
+                         "ProsperRating..numeric.",
+                         "StatedMonthlyIncome",
+                         "LoanOriginalAmount")], size = 3)+
+  theme(axis.text.x = element_text(angle = 90, hjust = 0, color = "black")) 
+
+```
+
+One major factor in Prosper Marketplace is how it assesses loans, as it affects the estimated loss and borrower score, thus determines the borrower rate and lender yield. In the previous two plots is summerizes how this was approched and its affects. 
+
+Prosper defines this score as: "A custom risk score built using historical Prosper data. The score ranges from 1-10, with 10 being the best, or lowest risk score.  Applicable for loans originated after July 2009."
+
+Acorrding to Prosper[3,4] it has built its own rick matrics (Prosper Score) using historical Prosper data to assess the risk of Prosper borrower listings, they analyzed the similarity of loan chatactrastics and how it performed. In addition to that, Prosper has reviewed several potintial factors from loan listing details provided by borrowers, and reporting credit bureau to build its score. Prospwe finally determined the ones to use and keep, these can be viewed from the previous plots: 
+
+It is negatively correlated with: Number of inquiries, Number of delinquent accounts, Card utilization, Number of open trade lines, Dept to income ratio, which shows the highest correlation. Also to illustirate the importance of this score it is highly correlated with Prosper Rating and Estiemated Loss. 
+
+We can also see that it is correlated with Credit Score Range (Lower, and Upper) which represent FICO®08 score. This score is used to specify the estimated loss in addition to Prosper Score. From the correlation matrics we can see how each of these scores correlates with the other factors but on different level, which tells us that Prosper Score uses different approach including historic data.
+
+Although not stated we can see clear correlation between the monthly income load amount and Prosper Score. We can also see correlation between Lender Yield and Borrower Rate, which is not suprising. 
+
+### How the Term relates to Loan Amount? 
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, Bivariate_Plots_3}
+
+ggplot(aes(x =Term, y = LoanOriginalAmount, group = Term), 
+       data = prosperLoanData) +
+  geom_boxplot() +
+  scale_y_continuous(breaks = seq(0,50000, 5000)) +
+  theme(axis.text.x = element_text(angle = 70, hjust = 1)) 
+
+
+ggplot(prosperLoanData, aes(x = LoanOriginalAmount, group = Term, 
+                            color = factor(Term))) +
+  geom_freqpoly(binwidth = 500) +
+  scale_y_continuous(breaks = seq(0,15000, 2000)) +
+  theme(axis.text.x = element_text(angle = 70, hjust = 1)) 
+
+with(data = prosperLoanData, by(LoanOriginalAmount, Term, 
+                                summary))
+
+```
+
+The higher loan amount tends to be in longer term. The median and mean are higher in 5-year duration than in 3-year. 
+In the second plot we can see the distribution of loan amount based on each term.
+
+
+### Borrower State and Loan Amount:
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, Bivariate_Plots_4}
+# borrower state: 
+ggplot(aes(x = BorrowerState, y = LoanOriginalAmount), data = 
+         subset (prosperLoanData, BorrowerState != "")) + 
+  geom_boxplot() +
+  theme(axis.text.x = element_text(angle = 70, hjust = 1)) 
+
+```
+
+
+This plot gives a presentation of how each state differs in terms of the amount of loans.
+We can see higher median in some states such as: California, New york, and Texas. Whereas some states have barely made any loans, for example: Alaska, and Maine, which can be reletive to the population and economy of that state. 
+
+
+### Prosper Rating and Loan Amount: 
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, Bivariate_Plots_5}
+# prosper rate with loan status: 
+ggplot(aes(y = LoanOriginalAmount, x = ProsperRating..Alpha., 
+           group = ProsperRating..Alpha.), 
+       data = prosperLoanData) + 
+  geom_boxplot()+ 
+  theme(axis.text.x = element_text(angle = 70, hjust = 1)) 
+
+```
+
+As we have seen from the correlation matrix Prosper Rating correlates with the loan amount, this plot shows how the loan amount is affected by the rating. 
+
+### Loan Amount and Category:
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, Bivariate_Plots_6}
+
+# amount ~ category? 
+ggplot(prosperLoanData,aes(y = LoanOriginalAmount, 
+                           x = ListingCategory..alpha., mpg)) +
+  geom_violin() +
+  theme(axis.text.x = element_text(angle = 70, hjust = 1))
+ 
+```
+
+This plot shows the ditribution of loan amount by each category. 
+
+### Employment Status and Loan Amount: 
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, Bivariate_Plots_7}
+
+# employment status ~ loan amount: 
+ggplot(aes(x = EmploymentStatus , y = LoanOriginalAmount), data = 
+         subset(prosperLoanData, EmploymentStatus != "" & 
+                  EmploymentStatus != "Not available")) +
+  geom_boxplot() +
+  scale_y_continuous(breaks = seq(0,50000, 5000)) +
+  theme(axis.text.x = element_text(angle = 70, hjust = 1))
+
+
+# employment status ~ loan amount: 
+ggplot(aes(x = EmploymentStatus , y = ProsperRating..numeric.), data = 
+         subset(prosperLoanData, EmploymentStatus != "" & 
+                  EmploymentStatus != "Not available")) +
+  geom_boxplot() +
+  theme(axis.text.x = element_text(angle = 70, hjust = 1))
+
+# employment status ~ duration: 
+ggplot(aes(y = EmploymentStatusDuration, x = EmploymentStatus), 
+       data = subset(prosperLoanData, EmploymentStatus != "Not available")) +
+  geom_boxplot() + 
+  theme(axis.text.x = element_text(angle = 70, hjust = 1)) 
+
+summary(prosperLoanData$EmploymentStatusDuration)
+```
+
+It is clear that higher loans are made by employed and self-employed. In the second plot we can the how Prosper Rating relates to employment status and its statistics. We can also see the statistics of employment duration based on employment status. 
+
+
+### Monthly Payment and Loan Amount: 
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, Bivariate_Plots_8}
+
+# monthly payment x original amount
+ggplot(aes(x = MonthlyLoanPayment, y = LoanOriginalAmount),
+       data = prosperLoanData) + 
+  geom_point(alpha = 1/20) +
+  scale_y_continuous(breaks = seq(0,50000,5000))
+
+summary(prosperLoanData$MonthlyLoanPayment)
+summary(prosperLoanData$LoanOriginalAmount)
+
+print ("Percentage of loan payments below $500")
+nrow(subset(prosperLoanData, prosperLoanData$MonthlyLoanPayment <= 500))/ 
+  nrow(prosperLoanData) * 100
+
+print ("Correlation")
+cor(x = prosperLoanData$MonthlyLoanPayment, 
+    y = prosperLoanData$LoanOriginalAmount)
+```
+
+This plot shows a strong correlation between Loan amount and monthly payment, so as the loan amount increases the monthly payment increases. However around 87% of the loans have monthly payment below $500 regardless of the moan original amount. We can view this in relation to the Term of the laon and explore how it is affected.  
+
+
+### Monthly Payment and Income Range: 
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, Bivariate_Plots_9}
+
+# monthly payment x monthly income
+ggplot(aes(x = IncomeRange, y = MonthlyLoanPayment),
+       data = subset(prosperLoanData, IncomeRange != "Not displayed")) + 
+  geom_boxplot() +
+  theme(axis.text.x = element_text(angle = 70, hjust = 1)) 
+
+with(data = prosperLoanData, by(MonthlyLoanPayment, IncomeRange, 
+                                summary))
+```
+
+In this plot I wanted to explore the relation between monthly payment and income range. The mean and median for each range differs however it is stil below $500 as we have concluded from the previous plot. 
+
+
+### Investors and Loan Amount:
+```{r echo=FALSE, message=FALSE, warning=FALSE, Bivariate_Plots_10}
+
+# investor X amount 
+
+ggplot(aes(x = LoanOriginalAmount , y = Investors),
+       data = subset(prosperLoanData, Investors >1)) + 
+  geom_point(alpha= 1/20) +
+  geom_quantile(alpha = 0.5)+
+  theme(axis.text.x = element_text(angle = 70, hjust = 1))
+
+ggplot(aes(x = ProsperRating..Alpha., y = LoanOriginalAmount, 
+           group = ProsperRating..Alpha.),
+       data = subset(prosperLoanData, Investors == 1)) + 
+  geom_boxplot() +
+  theme(axis.text.x = element_text(angle = 70, hjust = 1)) 
+
+with(data = subset(prosperLoanData, Investors == 1), 
+     by(LoanOriginalAmount, Investors, summary))
+
+
+```
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, Bivariate_Plots_11}
+ManyInvestors <- prosperLoanData$Investors > 1
+prosperLoanData$ManyInvestors <- ManyInvestors
+
+ggplot(aes(x = ManyInvestors, y = LoanOriginalAmount),
+       data = prosperLoanData) + 
+  geom_boxplot()
+  theme(axis.text.x = element_text(angle = 70, hjust = 1)) 
+
+with(data = prosperLoanData, by(LoanOriginalAmount, ManyInvestors, 
+                                summary))
+```
+
+
+From these plots we can examine the relation between loan amount and investors, I wanted to break it down to two groups as we seen earlier in the univariate analysis that many loans are funded by only one investor. 
+
+The first scatter plot represents loans with more than one investor, a regression quantile lines are added, we can see that investors tends to increase as the loan amount increases. The second plot is only focused on loans funded by one investor based on Prosper Rating, I expected to see lower mean for the loan amount but that doesn't seem to be the case, so I created a new variable to accuratly compare between the two cases. In the third plot we can see that that loans funded by only one investor have higher mean than many investors. This is interesting, I wonder what makes person invest like that? In the multivarita anylsis I will see if these loans have higher lender yield of not? Also how it relates to Term? 
+
+
+# Bivariate Analysis
+
+In this section I have explored the dataset from different aspects relating to two variables, and found some interesting relationships and insights about Prosper marketplace. 
+
+### Talk about some of the relationships you observed in this part of the \
+investigation. How did the feature(s) of interest vary with other features in \
+the dataset?
+
+There are many relationships among the features, the strongest relates to how Prosper assess loans and evaluates them accordingly. The rest of the observations were mainly to understand the charachterstisc and marketplace and its users.
+
+
+### Did you observe any interesting relationships between the other features \
+(not the main feature(s) of interest)?
+
+Actually the relation between the number of investors and loan amount was quite unusual, although there are not many loans funded by only one investor, it is interesting to explore it. 
+
+### What was the strongest relationship you found?
+
+There are many strong correlations in this dataset, however the strongest meaningful relationship was between each of (Lender Yield, Borrower Rate, Estimated Loss) and Prosper Score.  
+
+ 
+
+# Multivariate Plots Section
+
+### Investors and Loan Amount (Extended):
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, Multivariate_Plots_1}
+
+  ggplot(aes(x = ManyInvestors, y = LoanOriginalAmount, fill = factor(Term)), 
+         data = prosperLoanData) + 
+  geom_boxplot() +
+  theme(axis.text.x = element_text(angle = 70, hjust = 1)) 
+
+
+  ggplot(aes(x = LenderYield, group = ManyInvestors, color= ManyInvestors), 
+         data = prosperLoanData) + 
+  geom_freqpoly() +
+  theme(axis.text.x = element_text(angle = 70, hjust = 1)) +
+    facet_wrap(~Year)
+  
+```
+
+
+These plots serve as continuation to the bivariate analysis, as we have explored the relation between investors and loan amount. In the first plot I added the variable Term to show how the amount differs for each term, in the case of one investor the mean is higher. 
+
+The secon plot show the relation between investors and lender yield for each year. From this plot we can detect that loans funded by one investor did not start to increase until recently (2013-2014)!  
+
+
+### Monthly Payment and Monthly Income by Year: 
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, Multivariate_Plots_2}
+
+# monthly payment x monthly income
+
+ggplot(aes(x = IncomeRange, fill = ProsperRating..Alpha.),
+       data = subset(prosperLoanData, IncomeRange != "Not displayed")) + 
+  geom_bar() +
+  theme(axis.text.x = element_text(angle = 70, hjust = 1)) +
+  facet_wrap(~Year)
+
+```
+
+This plot gives an overview on the Income Range and Prosper Rating for each year, we can that higher incomes tend to have better rating, where there isn't any HR for the two highest ranges in recent years. Also for lower ranges the rating isn't biased, we can find A,AA ratings.   
+
+
+### Monthly Payment and Loan Amount by Prosper Score: 
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, Multivariate_Plots_3}
+
+# monthly payment x original amount
+ggplot(aes(x = MonthlyLoanPayment, y = LoanOriginalAmount, 
+           color = ProsperScore),data = prosperLoanData) + 
+  geom_point(alpha = 1/20) +
+  scale_y_continuous(breaks = seq(0,50000,5000))
+
+```
+
+This plot shows how prosper score affecting loan payment and loan amount.
+
+### Loan Amount by Year for Term: 
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, Multivariate_Plots_4}
+
+ggplot(prosperLoanData, aes(y = LoanOriginalAmount, 
+                            x = as.numeric(as.character(Year)), 
+                            color = factor(Term))) +
+  geom_freqpoly(stat = "summary", fun.y = "mean") +
+  scale_y_continuous(breaks = seq(0,15000, 2000)) +
+  scale_x_continuous(breaks = seq(2005,2014, 1))
+
+```
+
+This plot we can look at the mean of loans amount made by each year for each term. We can see that 12-month loans are no longer fount in 2014, also 60-month loans didn't start until 2010. The 36-month seems to be most popular among other options. 
+
+
+### Loan Amount, Monthly Payment based on Prosper Rating: 
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, Multivariate_Plots_5}
+
+ggplot(aes(y = MonthlyLoanPayment, 
+                            x = as.numeric(as.character(Year)), 
+                            color = ProsperRating..Alpha.), 
+       data = subset(prosperLoanData, 
+                     ProsperRating..Alpha. != "NA")) +
+  geom_freqpoly(stat = "summary", fun.y = "mean") +
+  scale_y_continuous(breaks = seq(100,500, 100)) +
+  scale_x_continuous(breaks = seq(2005,2014, 1))
+
+
+ggplot(aes(y = LoanOriginalAmount, x = Year, 
+           fill = ProsperRating..Alpha.), data = subset(prosperLoanData, 
+                     ProsperRating..Alpha. != "NA")) +
+  geom_bar(stat = "summary", fun.y = "mean")+ 
+  scale_y_continuous(breaks = seq(0,100000, 5000)) 
+```
+
+These plots show the distibution of Loans Amount and Monthly Payment in each year, color coded by Prosper Rating.
+
+
+# Multivariate Analysis
+
+In this section I have compined the findings from previous sections and incorperated more variables. 
+
+### Talk about some of the relationships you observed in this part of the \
+investigation. Were there features that strengthened each other in terms of \
+looking at your feature(s) of interest?
+
+One major factor in the dataset is Prosper Score I have explored how it correlates with Loans Amount and Monthly Payments, it actually proofs the effectivity of this matrix. 
+
+### Were there any interesting or surprising interactions between features?
+
+------
+
+# Final Plots and Summary
+
+### Plot One
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, Plot_One}
+
+ggplot(prosperLoanData, aes(y = LoanOriginalAmount, 
+                            x = as.numeric(as.character(Year)), 
+                            color = factor(Term))) +
+  geom_freqpoly(stat = "summary", fun.y = "mean") +
+  scale_y_continuous(breaks = seq(0,15000, 2000)) +
+  scale_x_continuous(breaks = seq(2005,2014, 1)) +
+  theme(axis.text.x = element_text(angle = 70, hjust = 1)) +
+  ggtitle("Summary of Loans and Term by Originating Year") + 
+  xlab("Originating Year") + 
+  ylab("Average Loan Amount") + 
+  labs(color="Term (Months)") 
+  
+ggplot(prosperLoanData, aes(y = LoanOriginalAmount, 
+                            x = Year,
+                            fill = factor(Term))) +
+  geom_bar(stat = "summary", fun.y = "mean") +
+  scale_y_continuous(breaks = seq(0,50000, 2000)) +
+  theme(axis.text.x = element_text(angle = 70, hjust = 1)) +
+  ggtitle("Summary of Loans Amount and Term by Originating Year") + 
+  xlab("Originating Year") + 
+  ylab("Average Loan Amount") + 
+  labs(fill='Term (Months)') 
+
+```
+
+### Description One
+
+These plots give an overall view of Prosper marketplace. It shows the main characteristic of loans which is the loan amount of loans made, based on each year from 2005 - 2014, it also includes information regarding the term for those loans. We can see a lot from these simple plots, it shows how Prosper developed and evolved over time, also the value of it based on the loans amount being processed each year. The term information tells us how borrowers engage with the marketplace, and how much it is being trusted with their finances. 
+
+
+### Plot Two
+```{r echo=FALSE, message=FALSE, warning=FALSE, Plot_Two}
+  ggplot(aes(x = ManyInvestors, y = LoanOriginalAmount, group = ManyInvestors, 
+             color= ManyInvestors), data = prosperLoanData) + 
+  geom_boxplot() +
+  theme(axis.text.x = element_text(angle = 70, hjust = 1)) +
+  facet_wrap(~Year, ncol = 5) +
+  ggtitle("Summary of Loans Amount by Number of Investors") + 
+  xlab("Has Many Investors?") + 
+  ylab("Loan Amount") + 
+  labs(color='Has Many Investors?') 
+
+  ggplot(aes(x = LenderYield, group = ManyInvestors, color= ManyInvestors), 
+         data = prosperLoanData) + 
+  geom_freqpoly() +
+  theme(axis.text.x = element_text(angle = 70, hjust = 1)) +
+  facet_wrap(~Year, ncol = 5) + 
+  ggtitle("Summary of Lender Yield by Number of Investors") + 
+  xlab("Lender Yield") + 
+  ylab("Count") + 
+  labs(color='Has Many Investors?') 
+
+```
+
+### Description Two
+
+
+Prosper is P2P marketplace, it allows many investor to fund part of loan. I noticed there were many loans funded by only one investor, these plots summarize my findings. It shows the distribution of loans amount and its statistics visualized in boxplot, the second one which important for investors shows the Lender Yield for each category, we can see in recent years there has been in increase in loans funded by one investor, maybe it proves the trust Prosper has developed with its investors now they invest in higher rates.   
+
+
+### Plot Three
+```{r echo=FALSE, message=FALSE, warning=FALSE, Plot_Three}
+
+ggplot(aes(y = ProsperScore, 
+                            x = as.numeric(as.character(Year)), 
+                            color = ProsperRating..Alpha.), 
+       data = subset(prosperLoanData, 
+                     ProsperRating..Alpha. != "NA")) +
+  geom_freqpoly(stat = "summary", fun.y = "mean") +
+  scale_y_continuous(breaks = seq(0,11, 1)) +
+  scale_x_continuous(breaks = seq(2005,2014, 1)) +
+  theme(axis.text.x = element_text(angle = 70, hjust = 1)) +
+  scale_color_brewer(type='seq')+ 
+  ggtitle("Average Prosper Score by Year and Prosper Rating") + 
+  xlab("Originating Year") + 
+  ylab("Prosper Score") + 
+  labs(color='Prosper Rating') 
+
+ggplot(aes(y = EstimatedLoss, x = Year, 
+                            fill = factor(ProsperScore)), 
+       data = subset(prosperLoanData, 
+                     ProsperRating..Alpha. != "NA")) +
+  geom_boxplot() +
+  theme(axis.text.x = element_text(angle = 70, hjust = 1)) +
+  ggtitle("Estimated Loss by Year and categorized by Prosper Score") + 
+  xlab("Originating Year") + 
+  ylab("Estimated Loss") + 
+  labs(fill='Prosper Score') 
+
+```
+
+### Description Three
+
+Based on the observations made in the univariate analysis, Prosper Score is the main factor developed by Prosper to assess risk and therefore estimates loss on loans. We also have another variable used to identify the quality of loans which is Prosper Rating, it is proprietary to evaluate loans. These two factors are important for investors in order to make good decisions.  There are more detailed factors considered when Prosper developed its Scoring matrix, so we can see how that changed overtime toward more accuracy. 
+
+In the first plot we can see in the first years most Rating has higher Score which mean lower risks! But it changed to be in consistent Score ranges. This can tell us how the matrix was developed on historic loans data. 
+
+The second plot shows the Estimated Loss for each year based on Prosper Score, we gain many insights from this plot, we can actually see improvements on the scoring and estimated loss, we can also see that the estimated loss is lowered by each year, which is a good indicator of the marketplace effectivity. 
+
+------
+
+# Reflection
+
+Prosper dataset is very insightful, and contains loads of information, it took me some time to understand the meaning of the variables as I have never took a loan, or had any work experience in the same field, so it was all almost new to me. That wasn't a set back at all, it just required more researching and more reading on the subject, and I am surprised by the amount of information I ended up personally, let alone the work done for this analysis. 
+
+Initially I wanted to understand the characteristics of borrowers so that was covered in the univariate analysis section, some of the findings were surprising to me, such as the Loan Category, Employment Status. Next, I went to explore what makes Prosper different than usual loan agencies, it was related to how it evaluates loans and risks, I showed this in the univariate analysis section. Finally, I combined all the work together and explored some interesting insights in the multivariate analysis section. 
+
+There were some limitations and obstacles I encountered during my analysis. I would want to have more information on investors, and explore the dataset from their perspective, whether they return for another investment, the actual return after the loan is complete.. etc, I believe it could be very valuable. 
+
+I wanted to explore the data related to borrowers who returned for another loan, and how their performance changes, I was also interested in showing how each state differs with respect to its population, but that would require looking for this data from other source, so for the scope of this analysis I decided to return to it some other time.  
+
+There are possible future work on this dataset, there are many regression models I can think of that would be suitable. Given some variables I already explored I want to build a model to assign the score for new loans. In addition to that we can further explore the data related to defaulted loans and develop a predictive model to detect these cases before they happen. With the data of investors we can build model to find the right investor for each loan and speedup the process. 
+
+# Resouces: 
+[1] http://www.altfi.com/article/1639_prospers_2015_in_numbers
+
+[2] https://en.wikipedia.org/wiki/Prosper_Marketplace#cite_note-2
+
+[3] https://www.prosper.com/plp/general-prosper_score/ 
+
+[4] https://www.prosper.com/plp/general-estimated_loss_rates/
